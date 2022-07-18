@@ -10,6 +10,7 @@
 #include <ctime>
 #include <algorithm>
 #include <vector>
+#include "omp.h"
 #include "functions.hpp"
 
 using namespace std;

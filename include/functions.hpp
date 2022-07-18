@@ -7,7 +7,6 @@
 #include <fstream>
 #include <cmath>
 #include "cuda_runtime.h"
-#include "omp.h"
 #include "utils.hpp"
 
 using namespace std;

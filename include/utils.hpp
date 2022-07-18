@@ -29,7 +29,7 @@ const string fileName = "SPE1CASE1";
 
 #define HEIGHT 30
 #define WIDTH 10
-#define SIZE 60
+#define SIZE 10
 #define TABU_SIZE 60
 #define SUPERIOZATION_SIZE 16
 

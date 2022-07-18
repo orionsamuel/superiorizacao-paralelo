@@ -1,16 +1,40 @@
 #include "tabu.hpp"
 
-// __global__ void FillBest(int altura, int largura, individual* d_sBest, double porosity, double permeability_1, double permeability_2, double permeability_3){
-//     int i = threadIdx.x + blockIdx.x * blockDim.x; 
-//     int j = threadIdx.y + blockIdx.y * blockDim.y;
+__global__ void Porosity(double* d_petro, double* image, int* suavity, int altura, int largura){
+    int i = threadIdx.x + blockIdx.x * blockDim.x; 
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    
+    if((i < altura) && (j < largura)){
+        *d_petro += pow((image[i*largura+j] - suavity[i*largura+j]),2);
+    }
+}
 
-//     if((i < altura) && (j < largura)){
-//         *d_sBest.porosity[i*largura+j] = porosity;
-//         *d_sBest.permeability[i*largura+j].permeability_1 = permeability_1;
-//         *d_sBest.permeability[i*largura+j].permeability_2 = permeability_2;
-//         *d_sBest.permeability[i*largura+j].permeability_3 = permeability_3;
-//     }
-// }
+__global__ void Permeability_1(double* d_petro, double* image, int* suavity, int altura, int largura){
+    int i = threadIdx.x + blockIdx.x * blockDim.x; 
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    
+    if((i < altura) && (j < largura)){
+        *d_petro += pow((image[i*largura+j] - suavity[i*largura+j]),2);
+    }
+}
+
+__global__ void Permeability_2(double* d_petro, double* image, int* suavity, int altura, int largura){
+    int i = threadIdx.x + blockIdx.x * blockDim.x; 
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    
+    if((i < altura) && (j < largura)){
+        *d_petro += pow((image[i*largura+j] - suavity[i*largura+j]),2);
+    }
+}
+
+__global__ void Permeability_3(double* d_petro, double* image, int* suavity, int altura, int largura){
+    int i = threadIdx.x + blockIdx.x * blockDim.x; 
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    
+    if((i < altura) && (j < largura)){
+        *d_petro += pow((image[i*largura+j] - suavity[i*largura+j]),2);
+    }
+}
 
 void tabu_search::FirstSimulation(){
     srand((unsigned)time(0));
@@ -23,6 +47,7 @@ void tabu_search::FirstSimulation(){
     double permeability_3 = Rand_double(MIN_PERMEABILITY, MAX_PERMEABILITY);
 
     for(int i = 0; i < HEIGHT; i++){
+        #pragma omp parallel for
         for(int j = 0; j < WIDTH; j++){
             this->sBest.porosity[i*WIDTH+j] = porosity;
             this->sBest.permeability[i*WIDTH+j].permeability_1 = permeability_1;
@@ -33,18 +58,284 @@ void tabu_search::FirstSimulation(){
 
     WriteSimulationFile(0, 0, simulationFile, fileName, this->sBest);
     
-    // Simulation(0, 1, fileName);
-    // sBest.error_rank = Fitness(0, 0, this->sBest);
+    Simulation(0, 1, fileName);
+    sBest.error_rank = Fitness(0, 0, this->sBest);
 
-    // WriteErrorFile(0, this->sBest);
+    WriteErrorFile(0, this->sBest);
 
-    // this->tabuList.push_back(sBest);
+    this->tabuList.push_back(sBest);
 
-    // this->bestCandidate = sBest;
+    this->bestCandidate = sBest;
 
-    // this->bestCandidate.proximity = ProximityFunction(this->bestCandidate);
+    this->bestCandidate.proximity = ProximityFunction(this->bestCandidate);
 
-    // Superiorization(this->bestCandidate);
+    Superiorization(this->bestCandidate);
+}
+
+void tabu_search::OthersSimulations(int idIteration){
+    GetNeighbors(this->bestCandidate);
+
+    CreateResultDir(idIteration);
+
+    #pragma omp parallel for
+    for(int i = 0; i < SIZE; i++){
+        WriteSimulationFile(idIteration, i, simulationFile, fileName, this->sNeighborhood[i]);
+    }
+
+    Simulation(idIteration, SIZE, fileName);
+
+    #pragma omp parallel for
+    for(int i = 0; i < SIZE; i++){
+        this->sNeighborhood[i].error_rank = Fitness(idIteration, i, this->sNeighborhood[i]);
+    }
+
+    for(int i = 0; i < SIZE; i++){
+        WriteErrorFile(idIteration, this->sNeighborhood[i]);
+    }
+
+    this->bestCandidate = sNeighborhood[0];
+
+    #pragma omp parallel for
+    for(int i = 0; i < SIZE; i++){
+        if(!Contains(sNeighborhood[i]) && sNeighborhood[i].error_rank < this->bestCandidate.error_rank){
+            this->bestCandidate = sNeighborhood[i];
+        }
+    }
+
+    this->bestCandidate.proximity = ProximityFunction(this->bestCandidate);
+
+    Superiorization(this->bestCandidate);
+
+    if(this->bestCandidate.error_rank < this->sBest.error_rank){
+        this->sBest = this->bestCandidate;
+    }
+
+    this->tabuList.push_back(this->bestCandidate);
+
+    if(tabuList.size() > TABU_SIZE){
+        tabuList.erase(tabuList.begin());
+    }
+
+}
+
+double tabu_search::Fitness(int idIteration, int iterator, individual sCandidate){
+    string oilOutputResult = "../Output/"+to_string(idIteration)+"/oleo/"+to_string(iterator)+".txt";
+    string waterOutputResult = "../Output/"+to_string(idIteration)+"/agua/"+to_string(iterator)+".txt";
+    string gasOutputResult = "../Output/"+to_string(idIteration)+"/gas/"+to_string(iterator)+".txt";
+    double error = activationFunction(waterOutputResult, oilOutputResult, gasOutputResult, realResults, idIteration);
+    
+    return error;
+}
+
+void tabu_search::GetNeighbors(individual bestCandidate){
+    for(int i = 0; i < SIZE; i++){
+        if(i < (SIZE / 2)){
+            double porosity = Rand_double(bestCandidate.porosity[0], bestCandidate.porosity[0]+0.03);
+            double permeability_1 = Rand_double(bestCandidate.permeability[0].permeability_1, bestCandidate.permeability[0].permeability_1+30);
+            double permeability_2 = Rand_double(bestCandidate.permeability[0].permeability_2, bestCandidate.permeability[0].permeability_2+30);
+            double permeability_3 = Rand_double(bestCandidate.permeability[0].permeability_3, bestCandidate.permeability[0].permeability_2+30);
+            #pragma omp parallel for
+            for(int j = 0; j < HEIGHT; j++){
+                for(int k = 0; k < WIDTH; k++){
+                    this->sNeighborhood[i].porosity[j*WIDTH+k] = Min(porosity, MAX_POROSITY);
+                    this->sNeighborhood[i].permeability[j*WIDTH+k].permeability_1 = Min(permeability_1, MAX_PERMEABILITY);
+                    this->sNeighborhood[i].permeability[j*WIDTH+k].permeability_2 = Min(permeability_2, MAX_PERMEABILITY);
+                    this->sNeighborhood[i].permeability[j*WIDTH+k].permeability_3 = Min(permeability_3, MAX_PERMEABILITY);
+                }
+            }
+        }else{
+            double porosity = Rand_double(bestCandidate.porosity[0]-0.03, bestCandidate.porosity[0]);
+            double permeability_1 = Rand_double(bestCandidate.permeability[0].permeability_1-30, bestCandidate.permeability[0].permeability_1);
+            double permeability_2 = Rand_double(bestCandidate.permeability[0].permeability_2-30, bestCandidate.permeability[0].permeability_2);
+            double permeability_3 = Rand_double(bestCandidate.permeability[0].permeability_3-30, bestCandidate.permeability[0].permeability_3);
+            #pragma omp parallel for
+            for(int j = 0; j < HEIGHT; j++){
+                for(int k = 0; k < WIDTH; k++){
+                    this->sNeighborhood[i].porosity[j*WIDTH+k] = Max(porosity, MIN_POROSITY);
+                    this->sNeighborhood[i].permeability[j*WIDTH+k].permeability_1 = Max(permeability_1, MIN_PERMEABILITY);
+                    this->sNeighborhood[i].permeability[j*WIDTH+k].permeability_2 = Max(permeability_2, MIN_PERMEABILITY);
+                    this->sNeighborhood[i].permeability[j*WIDTH+k].permeability_3 = Max(permeability_3, MIN_PERMEABILITY);
+                }
+            }
+        }
+    }
+}
+
+bool tabu_search::Contains(individual sCandidate){
+    bool contains = false;
+
+    #pragma omp parallel for
+    for(int i = 0; i < this->tabuList.size(); i++){
+        if((sCandidate.permeability[0].permeability_1 == this->tabuList[i].permeability[0].permeability_1) and
+        (sCandidate.permeability[0].permeability_2 == this->tabuList[i].permeability[0].permeability_2) and
+        (sCandidate.permeability[0].permeability_3 == this->tabuList[i].permeability[0].permeability_3)){
+            contains = true;
+        }
+    }
+
+    return contains;
+}
+
+void tabu_search::SaveTabuList(){
+    CreateResultDir(N_ITERATIONS+1);
+
+    #pragma omp parallel for
+    for(int i = 0; i < tabuList.size(); i++){
+        WriteSimulationFile(N_ITERATIONS+1, i, simulationFile, fileName, this->tabuList[i]);
+    }
+
+    Simulation(N_ITERATIONS+1, this->tabuList.size(), fileName);
+
+    #pragma omp parallel for
+    for(int i = 0; i < tabuList.size(); i++){
+        this->tabuList[i].error_rank = Fitness(N_ITERATIONS+1, i, this->tabuList[i]);
+    }
+
+
+    for(int i = 0; i < tabuList.size(); i++){
+        WriteErrorFile(N_ITERATIONS+1, this->tabuList[i]);
+    }
+}
+
+void tabu_search::SaveBest(){
+    CreateResultDir(N_ITERATIONS+2);
+
+    WriteSimulationFile(N_ITERATIONS+2, 0, simulationFile, fileName, this->sBest);
+
+    Simulation(N_ITERATIONS+2, 1, fileName);
+    sBest.error_rank = Fitness(N_ITERATIONS+2, 0, this->sBest);
+
+    WriteErrorFile(N_ITERATIONS+2, this->sBest);
+}
+
+void tabu_search::Superiorization(individual image){
+    int n = 0;
+    while (n < SUPERIOZATION_SIZE){
+        cout << "Iteração " << n << " do método de superiorização" << endl;
+        bool loop = true;
+        while(loop){
+            this->l = this->l + 1;
+            double beta = pow(a, l);
+            individual nextImage;
+
+            for(int i = 0; i < HEIGHT; i++){
+                #pragma omp parallel for
+                for(int j = 0; j < WIDTH; j++){
+                    nextImage.porosity[i*WIDTH+j] = Min(image.porosity[i*WIDTH+j] + beta * suavityImage[i*WIDTH+j], MAX_POROSITY);
+                    nextImage.permeability[i*WIDTH+j].permeability_1 = Min(image.permeability[i*WIDTH+j].permeability_1 + beta * suavityImage[i*WIDTH+j], MAX_PERMEABILITY);
+                    nextImage.permeability[i*WIDTH+j].permeability_2 = Min(image.permeability[i*WIDTH+j].permeability_2 + beta * suavityImage[i*WIDTH+j], MAX_PERMEABILITY);
+                    nextImage.permeability[i*WIDTH+j].permeability_3 = Min(image.permeability[i*WIDTH+j].permeability_3 + beta * suavityImage[i*WIDTH+j], MAX_PERMEABILITY);
+                }
+            }
+
+            nextImage.error_rank = image.error_rank;
+
+            nextImage.proximity = ProximityFunction(nextImage);
+            image.proximity = ProximityFunction(image);
+
+            if(nextImage.proximity <= image.proximity){
+                n++;
+                image = nextImage;
+                loop = false;
+            }
+        }
+        this->bestCandidate = image;
+    }
+    
+}
+
+double tabu_search::ProximityFunction(individual image){
+    double proximity;
+    double proximityPorosity;
+    double proximityPermeability_1;
+    double proximityPermeability_2;
+    double proximityPermeability_3;
+
+    int size = HEIGHT * WIDTH;
+
+    double porosity[size];
+    double permeability_1[size];
+    double permeability_2[size];
+    double permeability_3[size];
+
+    #pragma omp parallel for
+    for(int i = 0; i < size; i++){
+        porosity[i] = image.porosity[i];
+        permeability_1[i] = image.permeability[i].permeability_1;
+        permeability_2[i] = image.permeability[i].permeability_2;
+        permeability_3[i] = image.permeability[i].permeability_3;
+
+    }
+
+    double* d_porosity;
+    double* d_permeability_1;
+    double* d_permeability_2;
+    double* d_permeability_3;
+    int* d_suavity;
+
+    cudaMalloc((void **)&d_porosity, sizeof(double));
+    cudaMalloc((void **)&d_permeability_1, sizeof(double));
+    cudaMalloc((void **)&d_permeability_2, sizeof(double));
+    cudaMalloc((void **)&d_permeability_3, sizeof(double));
+    cudaMalloc((void **)&d_suavity, size * sizeof(int));
+
+    dim3 blocks(HEIGHT,WIDTH);
+
+    cudaMemcpy(d_suavity, &this->suavityImage, size * sizeof(int), cudaMemcpyHostToDevice);
+
+    for(int i = 0; i < 4; i++){
+        if(i == 0){
+            cudaMemcpy(d_porosity, &proximityPorosity, sizeof(double), cudaMemcpyHostToDevice);
+
+            Porosity<<<1,blocks>>>(d_porosity, porosity, d_suavity, WIDTH, HEIGHT);
+            cudaDeviceSynchronize();
+
+            cudaMemcpy(&proximityPorosity, &d_porosity, sizeof(double), cudaMemcpyDeviceToHost);
+
+            cudaFree(d_porosity);
+
+            proximityPorosity = sqrt(proximityPorosity);
+        }if(i == 1){
+            cudaMemcpy(d_permeability_1, &proximityPermeability_1, sizeof(double), cudaMemcpyHostToDevice);
+
+            Permeability_1<<<1,blocks>>>(d_permeability_1, permeability_1, d_suavity, WIDTH, HEIGHT);
+            cudaDeviceSynchronize();
+
+            cudaMemcpy(&proximityPermeability_1, &d_permeability_1, sizeof(double), cudaMemcpyDeviceToHost);
+
+            cudaFree(d_permeability_1);
+
+            proximityPermeability_1 = sqrt(proximityPermeability_1);
+        }if(i == 2){
+            cudaMemcpy(d_permeability_2, &proximityPermeability_2, sizeof(double), cudaMemcpyHostToDevice);
+
+            Permeability_2<<<1,blocks>>>(d_permeability_2, permeability_2, d_suavity, WIDTH, HEIGHT);
+            cudaDeviceSynchronize();
+
+            cudaMemcpy(&proximityPermeability_2, &d_permeability_2, sizeof(double), cudaMemcpyDeviceToHost);
+
+            cudaFree(d_permeability_2);
+
+            proximityPermeability_2 = sqrt(proximityPermeability_2);
+        }else{
+            cudaMemcpy(d_permeability_3, &proximityPermeability_3, sizeof(double), cudaMemcpyHostToDevice);
+
+            Permeability_3<<<1,blocks>>>(d_permeability_3, permeability_3, d_suavity, WIDTH, HEIGHT);
+            cudaDeviceSynchronize();
+
+            cudaMemcpy(&proximityPermeability_3, &d_permeability_3, sizeof(double), cudaMemcpyDeviceToHost);
+
+            cudaFree(d_permeability_3);
+
+            proximityPermeability_3 = sqrt(proximityPermeability_3);
+        }
+    }
+
+    cudaFree(d_suavity);
+
+    proximity = (proximityPorosity + proximityPermeability_1 + proximityPermeability_2 + proximityPermeability_3) / 4;
+
+    return proximity;
 }
 
 void tabu_search::Init(){
@@ -57,17 +348,18 @@ void tabu_search::Init(){
     this->realResults = ConvertStringInputToDoubleResult(waterInputResult, oilInputResult, gasInputResult); 
 
     for(int i = 0; i < HEIGHT; i++){
+        #pragma omp parallel for
         for(int j = 0; j < WIDTH; j++){
             this->suavityImage[i*WIDTH+j] = 5;
         }
     }
 
     FirstSimulation();
-    // int count = 1;
-    // while(count <= N_ITERATIONS && this->sBest.error_rank > STOP){
-    //     OthersSimulations(count);
-    //     count++;
-    // }
+    int count = 1;
+    while(count <= N_ITERATIONS && this->sBest.error_rank > STOP){
+        OthersSimulations(count);
+        count++;
+    }
 
     // SaveTabuList();
 
