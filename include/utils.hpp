@@ -8,7 +8,7 @@ const string inputGas = "../Input/gas.txt";
 const string simulationFile = "../Input/SPE1CASE1.DATA";
 const string fileName = "SPE1CASE1";
 
-#define N_ITERATIONS 1
+#define N_ITERATIONS 10
 #define STOP 80
 
 #define MIN_POROSITY 0.1

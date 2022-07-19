@@ -13,7 +13,6 @@ __global__ void FitnessOil(result *d_results, result *d_simulateResults, int N, 
 
     if(i < N){
         *d_rank += pow((d_results[i].oil - d_simulateResults[i].oil),2);
-        printf(" Rank: %f. Óleo Real: %f. Óleo Simulado: %f.\n", d_rank, d_results[i].oil, d_simulateResults[i].oil);
     }
     
 }
@@ -195,7 +194,7 @@ void functions::WriteErrorFile(int idIteration, individual sCandidate){
 }
 
 double functions::activationFunction(string waterOutputResult, string oilOutputResult, string gasOutputResult, vector<result> results, int idIteration){
-    double rank, rank_temp;
+    double rank;
 
     string waterResult = ReadFileInput(waterOutputResult);
     string oilResult = ReadFileInput(oilOutputResult);
@@ -205,54 +204,24 @@ double functions::activationFunction(string waterOutputResult, string oilOutputR
 
     simulateResults = ConvertStringInputToDoubleResult(waterResult, oilResult, gasResult);
 
-    int size = simulateResults.size();
-
-    result *d_results;
-    result *d_simulateResults;
-    double *d_rank;
-
-    cudaMalloc((void **)&d_results, size * sizeof(result));
-    cudaMalloc((void **)&d_simulateResults, size * sizeof(result));
-    cudaMalloc((void **)&d_rank, sizeof(double));
-
-    cudaMemcpy(d_results, results.data(), size * sizeof(result), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_simulateResults, simulateResults.data(), size * sizeof(result), cudaMemcpyHostToDevice);
-
-    FitnessWater<<<1,size>>>(d_results, d_simulateResults, size, d_rank);
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(&rank_temp, d_rank, sizeof(double), cudaMemcpyDeviceToHost); 
-
-    rank += rank_temp;
-    rank *= WATER_WEIGHT;
-
-    cudaMemcpy(d_results, results.data(), size * sizeof(result), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_simulateResults, simulateResults.data(), size * sizeof(result), cudaMemcpyHostToDevice);
-
-    FitnessOil<<<1,size>>>(d_results, d_simulateResults, size, d_rank);
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(&rank_temp, d_rank, sizeof(double), cudaMemcpyDeviceToHost);
-
-    cout << "Rank Oil: " << rank_temp << endl;
-
-    rank += rank_temp;
-    rank *= OIL_WEIGHT;
-
-    cudaMemcpy(d_results, results.data(), size * sizeof(result), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_simulateResults, simulateResults.data(), size * sizeof(result), cudaMemcpyHostToDevice);
-
-    FitnessGas<<<1,size>>>(d_results, d_simulateResults, size, d_rank);
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(&rank_temp, d_rank, sizeof(double), cudaMemcpyDeviceToHost);
-
-    rank += rank_temp;
-    rank *= GAS_WEIGHT;
-
-    cudaFree(d_results);
-    cudaFree(d_simulateResults);
-    cudaFree(d_rank);
+    for(int i = 0; i < N_METRICS; i++){
+        if(i == 0){
+            for(int j = 0; j < simulateResults.size(); j++){
+                rank += pow((results[j].water - simulateResults[j].water),2);
+            }
+            rank *= WATER_WEIGHT;
+        }if(i == 1){
+            for(int j = 0; j < simulateResults.size(); j++){
+                rank += pow((results[j].oil - simulateResults[j].oil),2);
+            }
+            rank *= GAS_WEIGHT;
+        }else if(i == 1){
+            for(int j = 0; j < simulateResults.size(); j++){
+                rank += pow((results[j].gas - simulateResults[j].gas),2);
+            }
+            rank *= OIL_WEIGHT;
+        }           
+    }
 
     rank = sqrt((rank / (simulateResults.size() * N_METRICS)));
 
